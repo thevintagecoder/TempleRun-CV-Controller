@@ -5,7 +5,7 @@ import time
 from collections import Counter
 
 # --- CONFIGURATION ---
-# Key Mappings (Adjust if your game uses 'a'/'d' for lanes)
+# Key Mappings 
 JUMP_KEY = 'up'
 SLIDE_KEY = 'down'
 LEFT_KEY = 'left'
