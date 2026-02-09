@@ -5,6 +5,7 @@ import time
 from collections import Counter
 
 # --- CONFIGURATION ---
+# Key Mappings (Adjust if your game uses 'a'/'d' for lanes)
 JUMP_KEY = 'up'
 SLIDE_KEY = 'down'
 LEFT_KEY = 'left'
@@ -24,23 +25,22 @@ cap = cv2.VideoCapture(0)
 
 # 3. Game State Variables
 current_action = "IDLE"
-history = []  # We will store the last 5 frames of gestures here
-history_length = 5  # How many frames to check for stability
+history = [] 
+history_length = 5
+last_action_time = 0 
+cooldown = 0.5 # Seconds
 
-def get_gesture(hand_landmarks):
-    """
-    Returns the name of the gesture based on landmarks.
-    """
+def get_finger_state(hand_landmarks):
+    """Returns 'OPEN', 'CLOSED', or 'NEUTRAL' based on fingers."""
     fingers = []
     
-    # Check Thumb (Horizontal) - Assuming Right Hand
+    # Thumb (Right Hand Assumption)
     if hand_landmarks.landmark[4].x < hand_landmarks.landmark[3].x:
         fingers.append(1)
     else:
         fingers.append(0)
 
-    # Check 4 Fingers (Vertical)
-    # Tip (8,12,16,20) must be HIGHER (smaller Y) than Pip (6,10,14,18)
+    # 4 Fingers
     tips = [8, 12, 16, 20]
     pips = [6, 10, 14, 18]
     
@@ -52,13 +52,12 @@ def get_gesture(hand_landmarks):
             
     total_fingers = fingers.count(1)
     
-    # Return Gesture Name
     if total_fingers >= 4:
         return "JUMP"
     elif total_fingers <= 1:
         return "SLIDE"
     else:
-        return "IDLE"
+        return "NEUTRAL"
 
 print("System Ready! Press 'q' to quit.")
 
@@ -69,6 +68,15 @@ while cap.isOpened():
 
     # Flip image
     image = cv2.flip(image, 1)
+    height, width, _ = image.shape
+    
+    # --- DRAW ZONES (Visual Feedback) ---
+    # Draw vertical lines at 20% and 80% of the screen
+    # Left Zone Line
+    cv2.line(image, (int(width * 0.2), 0), (int(width * 0.2), height), (0, 255, 255), 2)
+    # Right Zone Line
+    cv2.line(image, (int(width * 0.8), 0), (int(width * 0.8), height), (0, 255, 255), 2)
+    
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = hands.process(image_rgb)
 
@@ -78,44 +86,51 @@ while cap.isOpened():
         for hand_landmarks in results.multi_hand_landmarks:
             mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-            # 1. Check Movement (Left/Right) - Priority #1
             wrist_x = hand_landmarks.landmark[0].x
             
+            # 1. Check Zones
             if wrist_x < 0.2:
                 frame_gesture = "LEFT"
             elif wrist_x > 0.8:
                 frame_gesture = "RIGHT"
             else:
-                # 2. Check Fingers (Jump/Slide)
-                frame_gesture = get_gesture(hand_landmarks)
+                # Only check jump/slide if we are in the CENTER zone
+                frame_gesture = get_finger_state(hand_landmarks)
 
-    # --- STABILITY CHECK (The Fix) ---
+    # --- STABILITY & ACTION ---
     history.append(frame_gesture)
     if len(history) > history_length:
         history.pop(0)
 
-    # Find the most common gesture in the last 5 frames
-    # If we see ["JUMP", "JUMP", "IDLE", "JUMP", "JUMP"], it decides "JUMP"
     most_common_gesture = Counter(history).most_common(1)[0][0]
 
-    # Only trigger if the stable gesture changes!
+    # LOGIC CHANGE: Only press key if the ACTION CHANGED
+    # This prevents holding the key down forever
     if most_common_gesture != current_action:
         current_action = most_common_gesture
         
+        # We only trigger the key press ONCE when the state switches
         if current_action == "LEFT":
+            print("Turning Left")
             pyautogui.press(LEFT_KEY)
         elif current_action == "RIGHT":
+            print("Turning Right")
             pyautogui.press(RIGHT_KEY)
         elif current_action == "JUMP":
+            print("Jumping")
             pyautogui.press(JUMP_KEY)
         elif current_action == "SLIDE":
+            print("Sliding")
             pyautogui.press(SLIDE_KEY)
 
     # UI Display
-    color = (0, 255, 0) if current_action != "IDLE" else (0, 0, 255)
-    cv2.putText(image, f"Action: {current_action}", (10, 50), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    cv2.putText(image, f"Current: {current_action}", (10, 50), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     
+    # Add Zone Labels
+    cv2.putText(image, "LEFT", (10, height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.putText(image, "RIGHT", (width - 100, height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
     cv2.imshow('Temple Run Controller', image)
 
     if cv2.waitKey(5) & 0xFF == ord('q'):
